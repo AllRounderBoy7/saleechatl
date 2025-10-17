@@ -1,773 +1,1028 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image, UserPlus, Check, X, LogOut, Search, Trash2, ArrowLeft, Users, Shield, Settings, Ban, Unlock, UserX, Bell, User, AlertCircle, MessageSquare } from 'lucide-react';
+import { Send, Image, UserPlus, Check, X, LogOut, Search, Trash2, ArrowLeft, Users, Shield, Settings, Ban, Unlock, UserX, Bell, User, AlertCircle } from 'lucide-react';
 
-// ⚠️ IMPORTANT: Please use your actual Supabase credentials here.
-// NOTE: I've kept the mock credentials from the previous response.
-const SUPABASE_URL = 'https://fsvuqwssdgninwzbhuny.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZzdnVxd3NzZGduaW53emhidW55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1MDQxODQsImV4cCI6MjA3NjA4MDE4NH0.vEM4-Ndv-RDAhR7kzyZjmXpBbR7PLEgf5qBxtMZQG5U';
+// ⚠️ IMPORTANT: Add your Supabase credentials here
+const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
+const SUPABASE_KEY = 'YOUR_ANON_KEY';
 
 const ADMIN_CREDENTIALS = {
-  username: 'sameer',
-  password: 'sameer3745'
+  username: 'sameer',
+  password: 'sameer3745'
 };
 
-// 🛠️ Supabase Client (Simple fetch-based, integrated for single file)
-// FIX: The try/catch in the helper methods was suppressing errors. We now let the App handle them.
+// Supabase Client (Simple fetch-based)
 class SupabaseClient {
-  constructor(url, key) {
-    this.url = url;
-    this.key = key;
-  }
+  constructor(url, key) {
+    this.url = url;
+    this.key = key;
+  }
 
-  // Helper for making requests with exponential backoff for robustness
-  async request(table, method = 'GET', body = null, filters = '', retries = 3) {
-    const endpoint = `${this.url}/rest/v1/${table}${filters}`;
+  async request(table, method = 'GET', body = null, filters = '') {
+    const endpoint = `${this.url}/rest/v1/${table}${filters}`;
+    
+    try {
+      const options = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': this.key,
+          'Authorization': `Bearer ${this.key}`
+        }
+      };
 
-    for (let i = 0; i < retries; i++) {
-      try {
-        const options = {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': this.key,
-            'Authorization': `Bearer ${this.key}`,
-            // IMPORTANT FIX: These settings resolve most cross-origin 'Failed to fetch' errors in isolated environments
-            'Accept': 'application/json, text/plain, */*',
-          },
-          mode: 'cors', // Enable Cross-Origin Resource Sharing
-          cache: 'no-cache', 
-        };
+      if (body) options.body = JSON.stringify(body);
 
-        if (body) options.body = JSON.stringify(body);
+      const response = await fetch(endpoint, options);
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw error;
+      }
 
-        const response = await fetch(endpoint, options);
+      return await response.json();
+    } catch (error) {
+      console.error('Supabase Error:', error);
+      return null;
+    }
+  }
 
-        if (!response.ok) {
-          // Attempt to parse error response
-          const errorText = await response.text();
-          try {
-            const error = JSON.parse(errorText);
-            throw new Error(error.message || `Supabase HTTP Error: ${response.status} ${response.statusText}`);
-          } catch {
-             throw new Error(`Supabase HTTP Error: ${response.status} ${response.statusText}. Response: ${errorText}`);
-          }
-        }
+  async select(table, filters = '') {
+    return this.request(table, 'GET', null, filters);
+  }
 
-        // Handle successful response (No content for PATCH/DELETE/POST by default)
-        if (method === 'DELETE' || method === 'PATCH' || response.status === 204) return true;
-        if (method === 'POST') return await response.json(); // POST usually returns inserted record
+  async insert(table, data) {
+    return this.request(table, 'POST', data);
+  }
 
-        return await response.json();
+  async update(table, data, filters) {
+    return this.request(table, 'PATCH', data, filters);
+  }
 
-      } catch (error) {
-        console.error(`Supabase Request Failed (Attempt ${i + 1}/${retries}):`, error.message);
-        if (i < retries - 1) {
-          // Exponential backoff wait: 100ms, 200ms, 400ms...
-          await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
-        } else {
-          // Last retry failed
-          throw error; // Throw the error to be caught by the main component logic
-        }
-      }
-    }
-  }
-
-  async select(table, filters = '') { 
-      return await this.request(table, 'GET', null, filters);
-  }
-  async insert(table, data) { 
-      return await this.request(table, 'POST', data);
-  }
-  async update(table, data, filters) { 
-      return await this.request(table, 'PATCH', data, filters);
-  }
-  async delete(table, filters) { 
-      return await this.request(table, 'DELETE', null, filters);
-  }
+  async delete(table, filters) {
+    return this.request(table, 'DELETE', null, filters);
+  }
 }
 
 const supabase = new SupabaseClient(SUPABASE_URL, SUPABASE_KEY);
 
+const App = () => {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showAuth, setShowAuth] = useState(true);
+  const [authMode, setAuthMode] = useState('login');
+  const [users, setUsers] = useState([]);
+  const [friendRequests, setFriendRequests] = useState([]);
+  const [friends, setFriends] = useState([]);
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [messages, setMessages] = useState({});
+  const [newMessage, setNewMessage] = useState('');
+  const [searchUser, setSearchUser] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [activeTab, setActiveTab] = useState('chats');
+  const [profileImage, setProfileImage] = useState({});
+  const [loginError, setLoginError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [supabaseError, setSupabaseError] = useState('');
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const profileInputRef = useRef(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
 
-// ⚛️ Main Chat App Component 
-const ChatApp = () => {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [showAuth, setShowAuth] = useState(true);
-  const [authMode, setAuthMode] = useState('login');
-  const [users, setUsers] = useState([]);
-  const [friendRequests, setFriendRequests] = useState([]);
-  const [friends, setFriends] = useState([]);
-  const [selectedChat, setSelectedChat] = useState(null);
-  const [messages, setMessages] = useState({});
-  const [newMessage, setNewMessage] = useState('');
-  const [searchUser, setSearchUser] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [activeTab, setActiveTab] = useState('chats');
-  const [loginError, setLoginError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [supabaseError, setSupabaseError] = useState('');
-  const messagesEndRef = useRef(null);
-  // Removed unused refs: fileInputRef, profileInputRef, profileImage state
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  useEffect(() => {
+    checkSupabaseConnection();
+  }, []);
 
+  const checkSupabaseConnection = async () => {
+    if (!SUPABASE_URL.includes('supabase.co')) {
+      setSupabaseError('⚠️ Supabase credentials not configured. Using demo mode.');
+      return;
+    }
 
-  // --- Helper Functions ---
+    try {
+      await supabase.select('users', '?limit=1');
+      setSupabaseError('');
+    } catch (error) {
+      setSupabaseError('Cannot connect to Supabase. Check credentials.');
+    }
+  };
 
-  const checkSupabaseConnection = async () => {
-    if (!SUPABASE_URL.includes('supabase.co')) {
-      setSupabaseError('⚠️ Supabase credentials not configured. Using demo mode.');
-      return;
-    }
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, selectedChat]);
 
-    try {
-      // Trying to fetch a sample user record to confirm connection
-      const data = await supabase.select('users', '?limit=1');
-      if (data) setSupabaseError('');
-      else setSupabaseError('Could not fetch data. Check network or RLS policies.');
-    } catch (error) {
-      setSupabaseError('Cannot connect to Supabase. Check credentials or RLS: ' + error.message);
-    }
-  };
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  const generateUserId = (username) => {
-    // Simple mock ID generation
-    return username.toLowerCase().replace(/\s/g, '-') + Math.floor(Math.random() * 1000);
-  };
+  const isAdmin = () => {
+    return currentUser?.username === ADMIN_CREDENTIALS.username && currentUser?.is_admin === true;
+  };
 
-  const handleSignup = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setLoginError('');
+  const sanitizeUsername = (user) => {
+    return user.trim().toLowerCase().replace(/\s+/g, '');
+  };
 
-    try {
-      const userId = generateUserId(username);
+  const handleSignup = async () => {
+    setLoginError('');
+    setLoading(true);
 
-      // 1. Check if username already exists
-      const existingUser = await supabase.select('users', `?username=eq.${username}`);
-      if (existingUser && existingUser.length > 0) {
-        setLoginError('Username already taken.');
-        setLoading(false);
-        return;
-      }
+    if (!username.trim() || !password.trim()) {
+      setLoginError('Username aur password dono required hain!');
+      setLoading(false);
+      return;
+    }
 
-      // 2. Insert new user
-      const newUser = {
-        user_id: userId,
-        username: username,
-        password: password, // ⚠️ CRITICAL: In a real app, hash this! Never store plaintext passwords.
-        profile_pic: `https://placehold.co/100x100/F0F8FF/1E90FF?text=${username.charAt(0).toUpperCase()}`,
-        is_admin: username === ADMIN_CREDENTIALS.username,
-      };
+    const sanitized = sanitizeUsername(username);
+    if (sanitized.length < 3) {
+      setLoginError('Username atleast 3 characters hona chahiye!');
+      setLoading(false);
+      return;
+    }
 
-      const result = await supabase.insert('users', newUser);
+    if (password.length < 4) {
+      setLoginError('Password atleast 4 characters hona chahiye!');
+      setLoading(false);
+      return;
+    }
 
-      if (result) {
-        setCurrentUser(newUser);
-        setShowAuth(false);
-        setLoginError('');
-        setUsername('');
-        setPassword('');
-      } else {
-        setLoginError('Signup failed. The server did not return the inserted record.');
-      }
-    } catch (error) {
-      setLoginError(`Signup failed: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Check if user exists
+    const existingUsers = await supabase.select('users', `?username=eq.${sanitized}`);
+    
+    if (existingUsers && existingUsers.length > 0) {
+      setLoginError('Username already taken!');
+      setLoading(false);
+      return;
+    }
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setLoginError('');
+    // Create user
+    const newUser = {
+      username: sanitized,
+      password,
+      is_admin: false,
+      is_blocked: false
+    };
 
-    try {
-      const user = await supabase.select('users', `?username=eq.${username}&password=eq.${password}`);
+    const result = await supabase.insert('users', newUser);
+    
+    if (result && result.length > 0) {
+      setCurrentUser(result[0]);
+      setShowAuth(false);
+      setUsername('');
+      setPassword('');
+    } else {
+      setLoginError('Signup failed! Try again.');
+    }
 
-      if (user && user.length === 1) {
-        setCurrentUser(user[0]);
-        setShowAuth(false);
-        setLoginError('');
-        setUsername('');
-        setPassword('');
-      } else {
-        setLoginError('Invalid username or password.');
-      }
-    } catch (error) {
-      setLoginError(`Login failed: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setLoading(false);
+  };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setSelectedChat(null);
-    setShowAuth(true);
-  };
+  const handleLogin = async () => {
+    setLoginError('');
+    setLoading(true);
 
-  const fetchUsers = async () => {
-    if (!currentUser) return;
-    try {
-      const allUsers = await supabase.select('users', `?order=username.asc`);
-      if (allUsers) {
-        setUsers(allUsers.filter(u => u.user_id !== currentUser.user_id));
-      }
-    } catch (error) {
-      console.error("Failed to fetch users:", error.message);
-      setSupabaseError("Failed to load users. Check RLS or connection.");
-    }
-  };
+    if (!username.trim() || !password.trim()) {
+      setLoginError('Username aur password dono required hain!');
+      setLoading(false);
+      return;
+    }
 
-  const fetchFriends = async () => {
-    if (!currentUser || users.length === 0) return;
-    try {
-      const friendsList = await supabase.select('friends', `?or=(user1_id.eq.${currentUser.user_id},user2_id.eq.${currentUser.user_id})&is_accepted=eq.true`);
-      if (friendsList) {
-        const friendIds = friendsList.map(f =>
-          f.user1_id === currentUser.user_id ? f.user2_id : f.user1_id
-        );
-        // Map user IDs to actual user objects
-        const friendsData = users.filter(u => friendIds.includes(u.user_id));
-        setFriends(friendsData);
-      }
-    } catch (error) {
-      console.error("Failed to fetch friends:", error.message);
-    }
-  };
+    const sanitized = sanitizeUsername(username);
 
-  const fetchFriendRequests = async () => {
-    if (!currentUser || users.length === 0) return;
-    try {
-      const requests = await supabase.select('friend_requests', `?receiver_id=eq.${currentUser.user_id}`);
-      if (requests) {
-        const senderIds = requests.map(r => r.sender_id);
-        // Map sender IDs to actual user objects
-        const sendersData = users.filter(u => senderIds.includes(u.user_id));
-        setFriendRequests(sendersData);
-      }
-    } catch (error) {
-      console.error("Failed to fetch friend requests:", error.message);
-    }
-  };
+    // Check admin
+    if (sanitized === ADMIN_CREDENTIALS.username && password === ADMIN_CREDENTIALS.password) {
+      const adminUser = {
+        id: 'admin-001',
+        username: ADMIN_CREDENTIALS.username,
+        password: ADMIN_CREDENTIALS.password,
+        is_admin: true,
+        created_at: new Date().toISOString()
+      };
+      setCurrentUser(adminUser);
+      setShowAuth(false);
+      setUsername('');
+      setPassword('');
+      setLoading(false);
+      return;
+    }
 
-  const handleAddFriend = async (userToAdd) => {
-    if (!currentUser) return;
-    
-    try {
-      // Check if request already exists (either direction)
-      const existingReq = await supabase.select('friend_requests', `?or=(and(sender_id.eq.${currentUser.user_id},receiver_id.eq.${userToAdd.user_id}),and(sender_id.eq.${userToAdd.user_id},receiver_id.eq.${currentUser.user_id}))`);
-        
-      if(existingReq && existingReq.length > 0) {
-          console.log('Request already sent or received.');
-          return;
-      }
-      
-      const request = {
-        sender_id: currentUser.user_id,
-        receiver_id: userToAdd.user_id,
-      };
-      const result = await supabase.insert('friend_requests', request);
-      if (result) {
-        console.log(`${userToAdd.username} has been sent a friend request!`);
-      } else {
-        console.error('Failed to send request.');
-      }
-    } catch (error) {
-      console.error("Error sending friend request:", error.message);
-    }
-  };
+    // Get user from database
+    const dbUsers = await supabase.select('users', `?username=eq.${sanitized}`);
 
-  const handleAcceptRequest = async (sender) => {
-    if (!currentUser) return;
-    try {
-      // 1. Delete the request
-      await supabase.delete('friend_requests', `?sender_id=eq.${sender.user_id}&receiver_id=eq.${currentUser.user_id}`);
-      
-      // 2. Add as friends (Note: Supabase should handle uniqueness constraints via RLS or schema)
-      await supabase.insert('friends', {
-        user1_id: currentUser.user_id,
-        user2_id: sender.user_id,
-        is_accepted: true,
-      });
-      
-      setFriendRequests(friendRequests.filter(u => u.user_id !== sender.user_id));
-      fetchFriends(); // Re-fetch friends list
-      console.log(`Accepted request from ${sender.username}.`);
-    } catch (error) {
-      console.error("Error accepting friend request:", error.message);
-    }
-  };
+    if (dbUsers && dbUsers.length > 0) {
+      const user = dbUsers[0];
+      
+      if (user.password !== password) {
+        setLoginError('Invalid username or password!');
+        setLoading(false);
+        return;
+      }
 
-  const handleDeclineRequest = async (sender) => {
-    if (!currentUser) return;
-    try {
-      await supabase.delete('friend_requests', `?sender_id=eq.${sender.user_id}&receiver_id=eq.${currentUser.user_id}`);
-      setFriendRequests(friendRequests.filter(u => u.user_id !== sender.user_id));
-      console.log(`Declined request from ${sender.username}.`);
-    } catch (error) {
-      console.error("Error declining friend request:", error.message);
-    }
-  };
+      if (user.is_blocked) {
+        setLoginError('Your account has been blocked!');
+        setLoading(false);
+        return;
+      }
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    if (!searchUser.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    const results = users.filter(u =>
-      u.username.toLowerCase().includes(searchUser.toLowerCase()) && u.user_id !== currentUser.user_id
-    );
-    setSearchResults(results);
-  };
+      // Load profile image
+      if (user.profile_image) {
+        setProfileImage(prev => ({
+          ...prev,
+          [user.id]: user.profile_image
+        }));
+      }
 
-  const getChatId = (user1_id, user2_id) => {
-    // Standardize chat ID creation by sorting IDs
-    return [user1_id, user2_id].sort().join('_');
-  };
-  
-  const fetchMessages = async (chatId) => {
-    if (!chatId) return;
-    try {
-      const chatMessages = await supabase.select('messages', `?chat_id=eq.${chatId}&order=created_at.asc`);
-      if (chatMessages) {
-        setMessages(prev => ({ ...prev, [chatId]: chatMessages }));
-      }
-    } catch (error) {
-      console.error("Failed to fetch messages:", error.message);
-    }
-    // Scroll happens on message change, no need to call here
-  };
+      setCurrentUser(user);
+      setShowAuth(false);
+      setUsername('');
+      setPassword('');
+    } else {
+      setLoginError('Invalid username or password!');
+    }
 
-  const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedChat || !currentUser) return;
+    setLoading(false);
+  };
 
-    const currentChatId = getChatId(currentUser.user_id, selectedChat.user_id);
-    
-    const messageContent = {
-      chat_id: currentChatId,
-      sender_id: currentUser.user_id,
-      content: newMessage.trim(),
-    };
-    
-    // 1. Optimistically update UI
-    const tempMessage = { ...messageContent, created_at: new Date().toISOString() };
-    setMessages(prev => ({
-      ...prev,
-      [currentChatId]: [...(prev[currentChatId] || []), tempMessage]
-    }));
-    setNewMessage('');
-    scrollToBottom();
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setShowAuth(true);
+    setSelectedChat(null);
+    setSearchUser('');
+    setSearchResults([]);
+    setShowSidebar(true);
+    setActiveTab('chats');
+    setLoginError('');
+  };
 
-    // 2. Send to DB
-    try {
-      // Supabase insert typically returns the inserted record.
-      const result = await supabase.insert('messages', messageContent);
-      if (!result) {
-        // If insert fails (e.g., RLS error), log and revert the optimistic update or show error.
-        console.error('Failed to send message and store in DB.');
-        // A more complex app would remove the temp message and show an error toast.
-      }
-    } catch (error) {
-      console.error("Error sending message:", error.message);
-      // Handle critical send failure (e.g., connection lost)
-    }
-  };
+  const handleSearchUser = async (query) => {
+    setSearchUser(query);
+    if (query.trim()) {
+      const results = await supabase.select('users', `?is_admin=eq.false&is_blocked=eq.false`);
+      
+      if (results) {
+        const filtered = results.filter(u => 
+          u.id !== currentUser?.id && 
+          u.username.includes(query.toLowerCase().replace(/\s+/g, ''))
+        );
+        setSearchResults(filtered);
+      }
+    } else {
+      setSearchResults([]);
+    }
+  };
 
-  const scrollToBottom = () => {
-    // FIX: Added a brief timeout to ensure the scroll happens after the message rendering/DOM update
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 10);
-  };
+  const sendFriendRequest = async (toUserId) => {
+    setLoading(true);
 
-  // --- Effects ---
+    // Check existing request
+    const existing = await supabase.select('friend_requests', `?from_user_id=eq.${currentUser.id}&to_user_id=eq.${toUserId}`);
+    
+    if (existing && existing.length > 0) {
+      alert('Request already sent!');
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    // Check connection on component mount
-    checkSupabaseConnection();
-  }, []);
+    // Check if already friends
+    const friendship = await supabase.select('friends', `?user1_id=eq.${currentUser.id}&user2_id=eq.${toUserId}`);
+    
+    if (friendship && friendship.length > 0) {
+      alert('Already friends!');
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    if (currentUser) {
-      fetchUsers();
-    }
-  }, [currentUser]);
+    const newRequest = {
+      from_user_id: currentUser.id,
+      to_user_id: toUserId,
+      status: 'pending'
+    };
 
-  useEffect(() => {
-    if (currentUser && users.length > 0) {
-      fetchFriends();
-      fetchFriendRequests();
-    }
-    // Note: users.length dependency is necessary because friend lists depend on the full user list being loaded first.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, users.length]);
+    const result = await supabase.insert('friend_requests', newRequest);
+    
+    if (result && result.length > 0) {
+      setSearchUser('');
+      setSearchResults([]);
+    }
 
-  useEffect(() => {
-    if (selectedChat && currentUser) {
-      const chatId = getChatId(currentUser.user_id, selectedChat.user_id);
-      fetchMessages(chatId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChat, currentUser]);
+    setLoading(false);
+  };
 
-  useEffect(() => {
-    // Scroll to bottom when messages update in the current chat
-    if (selectedChat) {
-      scrollToBottom();
-    }
-    // This ensures that when the selected chat changes, the scroll is also performed immediately
-  }, [messages, selectedChat]); 
+  const acceptFriendRequest = async (requestId, fromUserId) => {
+    setLoading(true);
 
-  // --- JSX Rendering Helpers ---
+    // Delete request
+    await supabase.delete('friend_requests', `?id=eq.${requestId}`);
 
-  const ProfileAvatar = ({ user, size = 'h-10 w-10' }) => (
-    <div className={`${size} bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0`}>
-      {user.username.charAt(0).toUpperCase()}
-    </div>
-  );
+    // Create friendship
+    const friendship = {
+      user1_id: fromUserId,
+      user2_id: currentUser.id
+    };
 
-  const renderFriendList = () => (
-    <div className="space-y-2">
-      {friends.length > 0 ? (
-        friends.map(friend => (
-          <div
-            key={friend.user_id}
-            onClick={() => { setSelectedChat(friend); setShowSidebar(false); }}
-            className={`flex items-center p-3 cursor-pointer rounded-xl transition hover:bg-gray-100 ${selectedChat && selectedChat.user_id === friend.user_id ? 'bg-blue-50 shadow-sm border-l-4 border-blue-500' : ''}`}
-          >
-            <ProfileAvatar user={friend} size="h-12 w-12" />
-            <div className="ml-4 truncate">
-              <p className="font-semibold text-gray-800 truncate">{friend.username}</p>
-              <p className="text-sm text-gray-500 truncate">Tap to chat</p>
-            </div>
-          </div>
-        ))
-      ) : (
-        <p className="text-center text-gray-500 p-4">No friends yet. Add some!</p>
-      )}
-    </div>
-  );
+    await supabase.insert('friends', friendship);
+    
+    // Refresh
+    fetchFriendRequests();
+    fetchFriends();
+    setLoading(false);
+  };
 
-  const renderFriendRequests = () => (
-    <div className="space-y-3">
-      {friendRequests.length > 0 ? (
-        friendRequests.map(sender => (
-          <div key={sender.user_id} className="flex items-center p-3 bg-white shadow-sm rounded-xl border">
-            <ProfileAvatar user={sender} size="h-10 w-10" />
-            <div className="ml-3 flex-1">
-              <p className="font-semibold text-sm">{sender.username}</p>
-            </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => handleAcceptRequest(sender)}
-                className="p-1.5 text-white bg-green-500 rounded-full hover:bg-green-600 transition"
-              >
-                <Check size={18} />
-              </button>
-              <button
-                onClick={() => handleDeclineRequest(sender)}
-                className="p-1.5 text-white bg-red-500 rounded-full hover:bg-red-600 transition"
-              >
-                <X size={18} />
-              </button>
-            </div>
-          </div>
-        ))
-      ) : (
-        <p className="text-center text-gray-500 p-4">No pending friend requests.</p>
-      )}
-    </div>
-  );
+  const rejectFriendRequest = async (requestId) => {
+    setLoading(true);
+    await supabase.delete('friend_requests', `?id=eq.${requestId}`);
+    fetchFriendRequests();
+    setLoading(false);
+  };
 
-  const renderUserSearch = () => (
-    <div className="p-4">
-      <form onSubmit={handleSearch} className="flex space-x-2 mb-4">
-        <input
-          type="text"
-          placeholder="Search users by name..."
-          value={searchUser}
-          onChange={(e) => setSearchUser(e.target.value)}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button type="submit" className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition">
-          <Search size={22} />
-        </button>
-      </form>
+  const fetchFriendRequests = async () => {
+    if (!currentUser) return;
 
-      <div className="space-y-3 max-h-96 overflow-y-auto">
-        {searchResults.length > 0 ? (
-          searchResults.map(user => (
-            <div key={user.user_id} className="flex items-center justify-between p-3 bg-white shadow-sm rounded-xl border">
-              <div className="flex items-center">
-                <ProfileAvatar user={user} size="h-10 w-10" />
-                <p className="ml-3 font-semibold">{user.username}</p>
-              </div>
-              <button
-                onClick={() => handleAddFriend(user)}
-                className="flex items-center space-x-1 p-2 bg-purple-500 text-white rounded-full text-sm hover:bg-purple-600 transition"
-              >
-                <UserPlus size={16} />
-              </button>
-            </div>
-          ))
-        ) : (
-          <p className="text-center text-gray-500">Search for users to connect.</p>
-        )}
-      </div>
-    </div>
-  );
+    const requests = await supabase.select('friend_requests', `?to_user_id=eq.${currentUser.id}&status=eq.pending`);
+    
+    if (requests) {
+      const withUsers = await Promise.all(
+        requests.map(async (req) => {
+          const user = await supabase.select('users', `?id=eq.${req.from_user_id}`);
+          return { ...req, fromUser: user?.[0] };
+        })
+      );
+      setFriendRequests(withUsers.filter(r => r.fromUser));
+    }
+  };
 
+  const fetchFriends = async () => {
+    if (!currentUser) return;
 
-  // --- Render Functions End ---
+    const friendships = await supabase.select('friends', `?user1_id=eq.${currentUser.id}`);
+    
+    if (friendships) {
+      setFriends(friendships);
+    }
+  };
 
-  // 1. Auth Screen JSX:
-  if (showAuth) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8">
-          <div className="flex justify-center mb-6">
-            <MessageSquare size={40} className="text-blue-600" />
-          </div>
-          <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">
-            {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
-          </h1>
-          <p className="text-center text-gray-500 mb-6">
-            {authMode === 'login' ? 'Sign in to start chatting' : 'Join the SaleeChat community'}
-          </p>
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !selectedChat) return;
 
-          {supabaseError && (
-            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-md mb-4 flex items-center">
-              <AlertCircle size={20} className="mr-3" />
-              <p className="text-sm font-medium">{supabaseError}</p>
-            </div>
-          )}
+    setLoading(true);
+    const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
 
-          <form onSubmit={authMode === 'login' ? handleLogin : handleSignup} className="space-y-5">
-            <div>
-              <input
-                type="text"
-                placeholder="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-              />
-            </div>
+    const message = {
+      chat_id: chatKey,
+      from_user_id: currentUser.id,
+      text: newMessage.trim(),
+      message_type: 'text'
+    };
 
-            {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
+    const result = await supabase.insert('messages', message);
+    
+    if (result && result.length > 0) {
+      setNewMessage('');
+      fetchMessages();
+    }
 
-            <button
-              type="submit"
-              disabled={loading || !username.trim() || !password.trim()}
-              className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition disabled:opacity-50 flex items-center justify-center"
-            >
-              {loading ? (
-                // Simple spinner SVG for loading state
-                <svg className="animate-spin h-5 w-5 text-white mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-              ) : (
-                authMode === 'login' ? 'Log In' : 'Sign Up'
-              )}
-            </button>
-          </form>
+    setLoading(false);
+  };
 
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                setLoginError('');
-                setUsername('');
-                setPassword('');
-              }}
-              className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
-            >
-              {authMode === 'login' ? "Don't have an account? Sign Up" : "Already have an account? Log In"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const fetchMessages = async () => {
+    if (!selectedChat) return;
 
-  // 2. Main Chat Interface JSX:
-  const currentChatMessages = messages[getChatId(currentUser.user_id, selectedChat?.user_id)] || [];
-  const ChatHeader = () => (
-    <div className="flex items-center justify-between p-4 bg-white border-b border-gray-200 shadow-sm">
-      <div className="flex items-center">
-        {!showSidebar && (
-          <button onClick={() => setShowSidebar(true)} className="md:hidden mr-3 p-2 text-gray-600 hover:bg-gray-100 rounded-full transition">
-            <ArrowLeft size={24} />
-          </button>
-        )}
-        <ProfileAvatar user={selectedChat} size="h-10 w-10" />
-        <div className="ml-4">
-          <p className="font-bold text-gray-800">{selectedChat.username}</p>
-          <p className="text-sm text-green-500">Active now</p>
-        </div>
-         {/* Showing the user ID for demo/debugging purposes */}
-        <span className="ml-2 text-xs text-gray-400 truncate hidden sm:inline">{selectedChat.user_id}</span>
-      </div>
-      <div className="flex space-x-3">
-        {/* Mock settings buttons */}
-        <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition"><Search size={20} /></button>
-        <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition"><Settings size={20} /></button>
-      </div>
-    </div>
-  );
+    const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
+    const data = await supabase.select('messages', `?chat_id=eq.${chatKey}&order=created_at.asc`);
 
-  return (
-    <div className="flex h-screen bg-gray-100 overflow-hidden">
-      {/* Sidebar: Chats, Requests, Search */}
-      <div
-        className={`fixed inset-y-0 left-0 z-20 w-full sm:w-80 bg-white border-r border-gray-200 md:relative md:translate-x-0 transition-transform duration-300 ease-in-out ${
-          showSidebar ? 'translate-x-0 shadow-xl md:shadow-none' : '-translate-x-full'
-        }`}
-      >
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <div className="flex flex-col items-start truncate">
-            <div className='flex items-center'>
-              <ProfileAvatar user={currentUser} size="h-10 w-10" />
-              <span className="ml-3 font-extrabold text-xl text-gray-900 truncate">
-                {currentUser?.username || 'User'}
-              </span>
-            </div>
-            <span className="ml-14 text-xs text-gray-400 truncate">ID: {currentUser?.user_id}</span>
-          </div>
-          <div className="flex space-x-2">
-            <button onClick={handleLogout} className="p-2 text-red-500 hover:bg-red-50 rounded-full transition tooltip" title="Logout">
-              <LogOut size={20} />
-            </button>
-          </div>
-        </div>
+    if (data) {
+      setMessages(prev => ({
+        ...prev,
+        [chatKey]: data
+      }));
+    }
+  };
 
-        {/* Tab Navigation */}
-        <div className="p-4 flex justify-around border-b border-gray-200">
-          <button onClick={() => setActiveTab('chats')} className={`flex-1 py-2 text-sm font-semibold rounded-full transition ${activeTab === 'chats' ? 'bg-blue-500 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>
-            <Users size={18} className="inline mr-1" /> Friends
-          </button>
-          <button onClick={() => setActiveTab('requests')} className={`flex-1 py-2 text-sm font-semibold rounded-full transition ml-2 ${activeTab === 'requests' ? 'bg-blue-500 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>
-            <Bell size={18} className="inline mr-1" /> Requests ({friendRequests.length})
-          </button>
-        </div>
-        
-        {/* Search Bar for Friends/Users */}
-        <div className="px-4 py-2 border-b border-gray-200">
-          <form onSubmit={(e) => { e.preventDefault(); setActiveTab('search'); handleSearch(e); }} className="flex">
-            <input
-              type="text"
-              placeholder="Find new users..."
-              value={searchUser}
-              onChange={(e) => { setSearchUser(e.target.value); setActiveTab('search'); }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button type="submit" className="p-2 bg-blue-500 text-white rounded-r-full hover:bg-blue-600 transition">
-              <Search size={22} />
-            </button>
-          </form>
-        </div>
+  const sendImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedChat) return;
 
-        <div className="p-4 overflow-y-auto h-[calc(100vh-182px)]"> {/* Adjusted height */}
-          {activeTab === 'chats' && renderFriendList()}
-          {activeTab === 'requests' && renderFriendRequests()}
-          {activeTab === 'search' && renderUserSearch()}
-        </div>
-      </div>
+    if (!file.type.startsWith('image/')) {
+      alert('Sirf images upload kar sakte hain!');
+      return;
+    }
 
-      {/* Main Chat Area */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 ${showSidebar ? 'hidden md:flex' : 'flex'}`}>
-        {selectedChat ? (
-          <>
-            {/* Chat Header */}
-            <ChatHeader />
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size 5MB se kam hona chahiye!');
+      return;
+    }
 
-            {/* Message Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50">
-              {currentChatMessages.map((message, index) => (
-                <div
-                  key={index}
-                  className={`flex ${message.sender_id === currentUser.user_id ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className={`max-w-xs lg:max-w-md p-3 rounded-2xl shadow-md ${
-                      message.sender_id === currentUser.user_id
-                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-br-none'
-                        : 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    <p className={`text-xs mt-1 text-right ${message.sender_id === currentUser.user_id ? 'text-blue-200' : 'text-gray-400'}`}>
-                      {new Date(message.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
+      
+      const message = {
+        chat_id: chatKey,
+        from_user_id: currentUser.id,
+        image_url: event.target.result,
+        message_type: 'image'
+      };
 
-            {/* Message Input */}
-            <div className="p-4 bg-white border-t border-gray-200">
-              {supabaseError && (
-                <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded-md mb-3 flex items-center">
-                  <AlertCircle size={20} className="mr-3" />
-                  <p className="text-sm font-medium">Database Error: {supabaseError}. Please check Supabase logs.</p>
-                </div>
-              )}
-              <div className="flex items-center space-x-3">
-                <textarea
-                  placeholder="Message..."
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  rows={1}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none max-h-32 overflow-y-auto transition"
-                  disabled={loading || supabaseError}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={!newMessage.trim() || loading || supabaseError}
-                  className="p-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                >
-                  <Send size={22} />
-                </button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="hidden md:flex flex-1 items-center justify-center bg-gray-50">
-            <div className="text-center p-6">
-              <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center shadow-lg">
-                <MessageSquare size={40} className="text-blue-600" />
-              </div>
-              <p className="text-xl font-bold text-gray-800">Welcome to SaleeChat</p>
-              <p className="text-md text-gray-500 mt-2">Select a friend from the sidebar to start a conversation.</p>
-              <button onClick={() => setActiveTab('search')} className="mt-4 px-4 py-2 bg-blue-500 text-white font-semibold rounded-full hover:bg-blue-600 transition shadow-md">
-                <Search size={18} className="inline mr-1" /> Find Friends
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+      const result = await supabase.insert('messages', message);
+      
+      if (result && result.length > 0) {
+        fetchMessages();
+      }
+    };
+
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleProfileImage = async (e, userId = null) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Sirf images upload kar sakte hain!');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const targetId = userId || currentUser?.id;
+      const imageData = event.target.result;
+
+      setProfileImage(prev => ({
+        ...prev,
+        [targetId]: imageData
+      }));
+
+      // Update in database
+      if (!isAdmin() || userId === currentUser?.id) {
+        await supabase.update('users', { profile_image: imageData }, `?id=eq.${targetId}`);
+      }
+    };
+
+    reader.readAsDataURL(file);
+    if (profileInputRef.current) {
+      profileInputRef.current.value = '';
+    }
+  };
+
+  const deleteMessage = async (messageId) => {
+    if (!selectedChat) return;
+    
+    setLoading(true);
+    await supabase.delete('messages', `?id=eq.${messageId}`);
+    fetchMessages();
+    setLoading(false);
+  };
+
+  const getChatMessages = () => {
+    if (!selectedChat) return [];
+    const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
+    return messages[chatKey] || [];
+  };
+
+  const deleteUserAccount = async (userId) => {
+    if (!isAdmin()) return;
+
+    if (window.confirm('Delete this account permanently?')) {
+      setLoading(true);
+      await supabase.delete('users', `?id=eq.${userId}`);
+      setLoading(false);
+      // Refresh users list
+    }
+  };
+
+  const blockUser = async (userId) => {
+    if (!isAdmin()) return;
+
+    setLoading(true);
+    await supabase.update('users', { is_blocked: true }, `?id=eq.${userId}`);
+    setLoading(false);
+  };
+
+  const unblockUser = async (userId) => {
+    if (!isAdmin()) return;
+
+    setLoading(true);
+    await supabase.update('users', { is_blocked: false }, `?id=eq.${userId}`);
+    setLoading(false);
+  };
+
+  const clearAllMessages = async () => {
+    if (!isAdmin()) return;
+
+    if (window.confirm('Clear all messages?')) {
+      setLoading(true);
+      // Note: This requires a more complex query in real Supabase
+      setMessages({});
+      setLoading(false);
+    }
+  };
+
+  const getFriendsList = () => {
+    if (!currentUser || !friends) return [];
+
+    return friends
+      .filter(f => f.user1_id === currentUser.id || f.user2_id === currentUser.id)
+      .map(f => {
+        const friendId = f.user1_id === currentUser.id ? f.user2_id : f.user1_id;
+        return users.find(u => u.id === friendId);
+      })
+      .filter(Boolean);
+  };
+
+  const formatMessageTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  const formatDate = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  const AvatarComponent = ({ userId, username, size = 'w-12 h-12' }) => {
+    const img = profileImage[userId];
+    if (img) {
+      return <img src={img} alt={username} className={`${size} bg-gradient-to-br from-blue-400 to-purple-400 rounded-full object-cover flex-shrink-0`} />;
+    }
+    return (
+      <div className={`${size} bg-gradient-to-br from-blue-400 to-purple-400 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}>
+        {username[0].toUpperCase()}
+      </div>
+    );
+  };
+
+  // Auth Screen
+  if (showAuth) {
+    return (
+      <div className="h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-center">
+            <h1 className="text-3xl font-bold text-white mb-1">SaleeChat</h1>
+            <p className="text-blue-100 text-sm">Connect with friends instantly</p>
+          </div>
+
+          <div className="p-6">
+            {supabaseError && (
+              <div className="mb-4 p-3 bg-yellow-100 border border-yellow-300 text-yellow-700 text-xs rounded-lg flex gap-2">
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <span>{supabaseError}</span>
+              </div>
+            )}
+
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => { setAuthMode('login'); setLoginError(''); }}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${
+                  authMode === 'login'
+                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Login
+              </button>
+              <button
+                onClick={() => { setAuthMode('signup'); setLoginError(''); }}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${
+                  authMode === 'signup'
+                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            {loginError && (
+              <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 text-sm rounded-lg">
+                {loginError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onKeyPress={(e) => e.key === 'Enter' && (authMode === 'login' ? handleLogin() : handleSignup())}
+                disabled={loading}
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onKeyPress={(e) => e.key === 'Enter' && (authMode === 'login' ? handleLogin() : handleSignup())}
+                disabled={loading}
+              />
+
+              <button
+                onClick={authMode === 'login' ? handleLogin : handleSignup}
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-[1.02] disabled:opacity-50"
+              >
+                {loading ? 'Loading...' : authMode === 'login' ? 'Login' : 'Create Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main Chat Interface
+  const friendsList = getFriendsList();
+  const pendingRequests = friendRequests.filter(r => r.fromUser);
+
+  if (activeTab === 'requests') {
+    return (
+      <div className="h-screen flex bg-gray-50 overflow-hidden">
+        <div className="w-full md:w-96 bg-white border-r flex flex-col">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Bell size={24} />
+              Friend Requests
+            </h2>
+          </div>
+
+          <div className="p-4">
+            <button
+              onClick={() => setActiveTab('chats')}
+              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition mb-4"
+            >
+              <ArrowLeft size={18} />
+              <span>Back to Chats</span>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {pendingRequests.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <Bell size={48} className="mx-auto mb-3 opacity-50" />
+                <p className="text-sm">No requests</p>
+              </div>
+            ) : (
+              pendingRequests.map(req => (
+                <div key={req.id} className="flex items-center justify-between mb-3 bg-white p-4 rounded-xl shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <AvatarComponent userId={req.fromUser.id} username={req.fromUser.username} size="w-12 h-12" />
+                    <div>
+                      <div className="text-sm font-semibold">{req.fromUser.username}</div>
+                      <div className="text-xs text-gray-500">wants to connect</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => acceptFriendRequest(req.id, req.from_user_id)}
+                      className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50"
+                      disabled={loading}
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => rejectFriendRequest(req.id)}
+                      className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:opacity-50"
+                      disabled={loading}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="flex-1 hidden md:flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+              <Bell size={40} className="text-blue-600" />
+            </div>
+            <p className="text-lg font-semibold text-gray-800">Friend Requests</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === 'settings') {
+    return (
+      <div className="h-screen flex bg-gray-50 overflow-hidden">
+        <div className="w-full md:w-96 bg-white border-r flex flex-col">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Settings size={24} />
+              Settings
+            </h2>
+          </div>
+
+          <div className="p-4">
+            <button
+              onClick={() => setActiveTab('chats')}
+              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition mb-4"
+            >
+              <ArrowLeft size={18} />
+              <span>Back</span>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-6">
+              <h3 className="font-semibold mb-3 text-gray-700 flex items-center gap-2">
+                <User size={18} />
+                Profile
+              </h3>
+              <div className="bg-white border rounded-xl p-4">
+                <div className="flex items-center gap-4 mb-4">
+                  <AvatarComponent userId={currentUser?.id} username={currentUser?.username} size="w-16 h-16" />
+                  <div>
+                    <div className="font-semibold text-gray-800">{currentUser?.username}</div>
+                    <button
+                      onClick={() => profileInputRef.current?.click()}
+                      className="mt-2 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition text-xs font-medium"
+                    >
+                      Change Photo
+                    </button>
+                    <input
+                      type="file"
+                      ref={profileInputRef}
+                      onChange={(e) => handleProfileImage(e, currentUser?.id)}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {isAdmin() && (
+              <div className="mb-6">
+                <h3 className="font-semibold mb-3 text-gray-700 flex items-center gap-2">
+                  <Shield size={18} />
+                  Admin
+                </h3>
+                <button
+                  onClick={() => setActiveTab('admin')}
+                  className="w-full px-4 py-2.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-medium flex items-center justify-center gap-2"
+                >
+                  <Shield size={18} />
+                  Admin Dashboard
+                </button>
+              </div>
+            )}
+
+            <div>
+              <button
+                onClick={handleLogout}
+                className="w-full px-4 py-2.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-medium flex items-center justify-center gap-2"
+              >
+                <LogOut size={18} />
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 hidden md:flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <Settings size={40} className="text-blue-600 mx-auto mb-4" />
+            <p className="text-lg font-semibold text-gray-800">Settings</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main chats
+  return (
+    <div className="h-screen flex bg-gray-50 overflow-hidden">
+      <div className={`${showSidebar ? 'flex' : 'hidden md:flex'} w-full md:w-96 bg-white border-r flex-col`}>
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
+          <h2 className="text-xl font-bold text-white mb-3">SaleeChat</h2>
+          <div className="flex items-center gap-3">
+            <AvatarComponent userId={currentUser?.id} username={currentUser?.username} size="w-12 h-12" />
+            <div className="flex-1 text-white">
+              <div className="font-semibold text-lg">{currentUser?.username}</div>
+              {isAdmin() && <div className="text-xs text-blue-100">ADMIN</div>}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 bg-gray-50 border-b">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Search users..."
+              value={searchUser}
+              onChange={(e) => handleSearchUser(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {searchResults.length > 0 && (
+            <div className="mt-3 max-h-60 overflow-y-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+              {searchResults.map(user => (
+                <div key={user.id} className="flex items-center justify-between p-3 hover:bg-gray-50 border-b last:border-b-0">
+                  <div className="flex items-center gap-3">
+                    <AvatarComponent userId={user.id} username={user.username} size="w-10 h-10" />
+                    <div className="text-sm font-semibold text-gray-800">{user.username}</div>
+                  </div>
+                  <button
+                    onClick={() => sendFriendRequest(user.id)}
+                    disabled={loading}
+                    className="p-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-md transition disabled:opacity-50"
+                  >
+                    <UserPlus size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4">
+            <h3 className="font-semibold mb-3 text-gray-700 text-sm uppercase tracking-wide">Chats</h3>
+            {friendsList.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <Users size={48} className="mx-auto mb-3 opacity-50" />
+                <p className="text-sm font-medium">No friends yet</p>
+                <p className="text-xs mt-1">Search and add friends</p>
+              </div>
+            ) : (
+              friendsList.map(friend => (
+                <button
+                  key={friend.id}
+                  onClick={() => {
+                    setSelectedChat(friend);
+                    setShowSidebar(false);
+                    fetchMessages();
+                  }}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl mb-2 transition-all ${
+                    selectedChat?.id === friend.id
+                      ? 'bg-gradient-to-r from-blue-50 to-purple-50 shadow-sm'
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <AvatarComponent userId={friend.id} username={friend.username} size="w-12 h-12" />
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="font-semibold text-gray-800 truncate">{friend.username}</div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="border-t p-3 flex gap-2">
+          <button
+            onClick={() => setActiveTab('requests')}
+            className={`flex-1 p-2.5 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${
+              activeTab === 'requests'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <Bell size={18} />
+            <span className="hidden sm:inline">Requests</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`flex-1 p-2.5 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${
+              activeTab === 'settings'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <Settings size={18} />
+            <span className="hidden sm:inline">Settings</span>
+          </button>
+        </div>
+      </div>
+
+      <div className={`${!showSidebar || selectedChat ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-white`}>
+        {selectedChat ? (
+          <>
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 flex items-center gap-3 shadow-md">
+              <button
+                onClick={() => {
+                  setSelectedChat(null);
+                  setShowSidebar(true);
+                }}
+                className="md:hidden text-white p-2 hover:bg-white/20 rounded-lg transition"
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <AvatarComponent userId={selectedChat.id} username={selectedChat.username} size="w-10 h-10" />
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-white truncate">{selectedChat.username}</div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+              {getChatMessages().length === 0 ? (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <Send size={48} className="mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">No messages yet</p>
+                    <p className="text-xs mt-1">Start the conversation!</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {getChatMessages().map(msg => (
+                    <div key={msg.id} className={`flex ${msg.from_user_id === currentUser.id ? 'justify-end' : 'justify-start'}`}>
+                      <div className="group relative max-w-[75%] md:max-w-md">
+                        <div
+                          className={`rounded-2xl p-3 shadow-sm ${
+                            msg.from_user_id === currentUser.id
+                              ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-br-sm'
+                              : 'bg-white text-gray-800 rounded-bl-sm border border-gray-200'
+                          }`}
+                        >
+                          {msg.message_type === 'text' ? (
+                            <p className="break-words">{msg.text}</p>
+                          ) : (
+                            <img src={msg.image_url} alt="Sent" className="max-w-full rounded-lg" />
+                          )}
+                          <div className={`text-xs mt-1 ${
+                            msg.from_user_id === currentUser.id ? 'text-blue-100' : 'text-gray-500'
+                          }`}>
+                            {formatMessageTime(msg.created_at)}
+                          </div>
+                        </div>
+                        {msg.from_user_id === currentUser.id && (
+                          <button
+                            onClick={() => deleteMessage(msg.id)}
+                            className="absolute -right-2 top-0 opacity-0 group-hover:opacity-100 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow-lg disabled:opacity-50"
+                            disabled={loading}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white border-t p-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={sendImage}
+                  accept="image/*"
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl transition flex-shrink-0 disabled:opacity-50"
+                  disabled={loading}
+                >
+                  <Image size={22} />
+                </button>
+                <input
+                  type="text"
+                  placeholder="Type a message..."
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                  className="flex-1 px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  disabled={loading}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={!newMessage.trim() || loading}
+                  className="p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  <Send size={22} />
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="hidden md:flex flex-1 items-center justify-center bg-gray-50">
+            <div className="text-center">
+              <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                <Send size={40} className="text-blue-600" />
+              </div>
+              <p className="text-lg font-semibold text-gray-800">Select a chat</p>
+              <p className="text-sm text-gray-500 mt-1">Choose a friend to start messaging</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
-export default ChatApp;
+export default App;

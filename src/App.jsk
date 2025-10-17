@@ -1,11 +1,13 @@
-import ChatApp from './ChatApp'; 
-
-function App() {
-  return (
-    <div className="min-h-screen">
-      <ChatApp /> 
-    </div>
-  );
-}
-
+// Original:
+// ... (Logic) ...
+const App = () => {
+// ... (JSX) ...
+};
 export default App;
+
+// Change to:
+// ... (Logic) ...
+const ChatApp = () => {  // <-- Naam badla
+// ... (JSX) ...
+};
+export default ChatApp; // <-- Export naam badla

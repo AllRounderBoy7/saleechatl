@@ -1,13 +1,11 @@
-// Original:
-// ... (Logic) ...
-const App = () => {
-// ... (JSX) ...
-};
-export default App;
+import ChatApp from './ChatApp'; 
 
-// Change to:
-// ... (Logic) ...
-const ChatApp = () => {  // <-- Naam badla
-// ... (JSX) ...
-};
-export default ChatApp; // <-- Export naam badla
+function App() {
+  return (
+    // Yeh App component sirf ChatApp ko render kar raha hai.
+    <div className="min-h-screen">
+      <ChatApp /> 
+    </div>
+  );
+}
+export default App;

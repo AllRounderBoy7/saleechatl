@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image, UserPlus, Check, X, LogOut, Search, Trash2, ArrowLeft, Users, Shield, Settings, Ban, Unlock, UserX, Bell, User, AlertCircle } from 'lucide-react';
+import { Send, Image, UserPlus, Check, X, LogOut, Search, Trash2, ArrowLeft, Users, Shield, Settings, Ban, Unlock, UserX, Bell, User } from 'lucide-react';
 
-// ⚠️ IMPORTANT: Add your Supabase credentials here
-const SUPABASE_URL = 'https://fsvuqwssdgninwzbhuny.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2anVmamFzbm1jbm9raW5oaHNpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0MjMwODMsImV4cCI6MjA3NTk5OTA4M30.cUncCbTLhFvcbiOHjPCuhJLLiHweFxsE3U6FreIXUk0';
+// Supabase Configuration
+const SUPABASE_URL = 'https://cvjufjasnmcnokinhhsi.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2anVmamFzbm1jbm9raW5oaHNpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0MjMwODMsImV4cCI6MjA3NTk5OTA4M30.cUncCbTLhFvcbiOHjPCuhJLLiHweFxsE3U6FreIXUk0';
 
 const ADMIN_CREDENTIALS = {
   username: 'sameer',
   password: 'sameer3745'
 };
 
-// Supabase Client (Simple fetch-based)
+// Supabase Client
 class SupabaseClient {
   constructor(url, key) {
     this.url = url;
@@ -19,29 +19,28 @@ class SupabaseClient {
 
   async request(table, method = 'GET', body = null, filters = '') {
     const endpoint = `${this.url}/rest/v1/${table}${filters}`;
-    
-    try {
-      const options = {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': this.key,
-          'Authorization': `Bearer ${this.key}`
-        }
-      };
 
-      if (body) options.body = JSON.stringify(body);
-
-      const response = await fetch(endpoint, options);
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw error;
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': this.key,
+        'Authorization': `Bearer ${this.key}`
       }
+    };
 
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    try {
+      const response = await fetch(endpoint, options);
+      if (!response.ok) {
+        return null;
+      }
       return await response.json();
     } catch (error) {
-      console.error('Supabase Error:', error);
+      console.error('Supabase error:', error);
       return null;
     }
   }
@@ -54,18 +53,18 @@ class SupabaseClient {
     return this.request(table, 'POST', data);
   }
 
-  async update(table, data, filters) {
+  async update(table, data, filters = '') {
     return this.request(table, 'PATCH', data, filters);
   }
 
-  async delete(table, filters) {
+  async delete(table, filters = '') {
     return this.request(table, 'DELETE', null, filters);
   }
 }
 
-const supabase = new SupabaseClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = new SupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const App = () => {
+const ChatApp = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [showAuth, setShowAuth] = useState(true);
   const [authMode, setAuthMode] = useState('login');
@@ -82,30 +81,11 @@ const App = () => {
   const [profileImage, setProfileImage] = useState({});
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [supabaseError, setSupabaseError] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const profileInputRef = useRef(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-
-  useEffect(() => {
-    checkSupabaseConnection();
-  }, []);
-
-  const checkSupabaseConnection = async () => {
-    if (!SUPABASE_URL.includes('supabase.co')) {
-      setSupabaseError('⚠️ Supabase credentials not configured. Using demo mode.');
-      return;
-    }
-
-    try {
-      await supabase.select('users', '?limit=1');
-      setSupabaseError('');
-    } catch (error) {
-      setSupabaseError('Cannot connect to Supabase. Check credentials.');
-    }
-  };
 
   useEffect(() => {
     scrollToBottom();
@@ -128,34 +108,33 @@ const App = () => {
     setLoading(true);
 
     if (!username.trim() || !password.trim()) {
-      setLoginError('Username aur password dono required hain!');
+      setLoginError('Username aur password required!');
       setLoading(false);
       return;
     }
 
     const sanitized = sanitizeUsername(username);
+
     if (sanitized.length < 3) {
-      setLoginError('Username atleast 3 characters hona chahiye!');
+      setLoginError('Username min 3 characters!');
       setLoading(false);
       return;
     }
 
     if (password.length < 4) {
-      setLoginError('Password atleast 4 characters hona chahiye!');
+      setLoginError('Password min 4 characters!');
       setLoading(false);
       return;
     }
 
-    // Check if user exists
     const existingUsers = await supabase.select('users', `?username=eq.${sanitized}`);
-    
+
     if (existingUsers && existingUsers.length > 0) {
       setLoginError('Username already taken!');
       setLoading(false);
       return;
     }
 
-    // Create user
     const newUser = {
       username: sanitized,
       password,
@@ -164,14 +143,15 @@ const App = () => {
     };
 
     const result = await supabase.insert('users', newUser);
-    
+
     if (result && result.length > 0) {
       setCurrentUser(result[0]);
       setShowAuth(false);
       setUsername('');
       setPassword('');
+      loadFriendsAndRequests(result[0].id);
     } else {
-      setLoginError('Signup failed! Try again.');
+      setLoginError('Signup failed!');
     }
 
     setLoading(false);
@@ -182,21 +162,20 @@ const App = () => {
     setLoading(true);
 
     if (!username.trim() || !password.trim()) {
-      setLoginError('Username aur password dono required hain!');
+      setLoginError('Username aur password required!');
       setLoading(false);
       return;
     }
 
     const sanitized = sanitizeUsername(username);
 
-    // Check admin
     if (sanitized === ADMIN_CREDENTIALS.username && password === ADMIN_CREDENTIALS.password) {
       const adminUser = {
         id: 'admin-001',
         username: ADMIN_CREDENTIALS.username,
         password: ADMIN_CREDENTIALS.password,
         is_admin: true,
-        created_at: new Date().toISOString()
+        is_blocked: false
       };
       setCurrentUser(adminUser);
       setShowAuth(false);
@@ -206,12 +185,11 @@ const App = () => {
       return;
     }
 
-    // Get user from database
     const dbUsers = await supabase.select('users', `?username=eq.${sanitized}`);
 
     if (dbUsers && dbUsers.length > 0) {
       const user = dbUsers[0];
-      
+
       if (user.password !== password) {
         setLoginError('Invalid username or password!');
         setLoading(false);
@@ -219,12 +197,11 @@ const App = () => {
       }
 
       if (user.is_blocked) {
-        setLoginError('Your account has been blocked!');
+        setLoginError('Account blocked!');
         setLoading(false);
         return;
       }
 
-      // Load profile image
       if (user.profile_image) {
         setProfileImage(prev => ({
           ...prev,
@@ -236,11 +213,29 @@ const App = () => {
       setShowAuth(false);
       setUsername('');
       setPassword('');
+      loadFriendsAndRequests(user.id);
     } else {
       setLoginError('Invalid username or password!');
     }
 
     setLoading(false);
+  };
+
+  const loadFriendsAndRequests = async (userId) => {
+    const friendData = await supabase.select('friends', `?or=(user1_id.eq.${userId},user2_id.eq.${userId})`);
+    if (friendData) {
+      setFriends(friendData);
+    }
+
+    const requestData = await supabase.select('friend_requests', `?to_user_id=eq.${userId}&status=eq.pending`);
+    if (requestData) {
+      setFriendRequests(requestData);
+    }
+
+    const usersData = await supabase.select('users');
+    if (usersData) {
+      setUsers(usersData);
+    }
   };
 
   const handleLogout = () => {
@@ -252,16 +247,17 @@ const App = () => {
     setShowSidebar(true);
     setActiveTab('chats');
     setLoginError('');
+    setMessages({});
   };
 
   const handleSearchUser = async (query) => {
     setSearchUser(query);
     if (query.trim()) {
-      const results = await supabase.select('users', `?is_admin=eq.false&is_blocked=eq.false`);
-      
+      const results = await supabase.select('users', '?is_admin=eq.false&is_blocked=eq.false');
+
       if (results) {
-        const filtered = results.filter(u => 
-          u.id !== currentUser?.id && 
+        const filtered = results.filter(u =>
+          u.id !== currentUser?.id &&
           u.username.includes(query.toLowerCase().replace(/\s+/g, ''))
         );
         setSearchResults(filtered);
@@ -274,20 +270,10 @@ const App = () => {
   const sendFriendRequest = async (toUserId) => {
     setLoading(true);
 
-    // Check existing request
     const existing = await supabase.select('friend_requests', `?from_user_id=eq.${currentUser.id}&to_user_id=eq.${toUserId}`);
-    
+
     if (existing && existing.length > 0) {
       alert('Request already sent!');
-      setLoading(false);
-      return;
-    }
-
-    // Check if already friends
-    const friendship = await supabase.select('friends', `?user1_id=eq.${currentUser.id}&user2_id=eq.${toUserId}`);
-    
-    if (friendship && friendship.length > 0) {
-      alert('Already friends!');
       setLoading(false);
       return;
     }
@@ -298,67 +284,32 @@ const App = () => {
       status: 'pending'
     };
 
-    const result = await supabase.insert('friend_requests', newRequest);
-    
-    if (result && result.length > 0) {
-      setSearchUser('');
-      setSearchResults([]);
-    }
-
+    await supabase.insert('friend_requests', newRequest);
+    setSearchUser('');
+    setSearchResults([]);
     setLoading(false);
   };
 
   const acceptFriendRequest = async (requestId, fromUserId) => {
     setLoading(true);
 
-    // Delete request
     await supabase.delete('friend_requests', `?id=eq.${requestId}`);
 
-    // Create friendship
     const friendship = {
       user1_id: fromUserId,
       user2_id: currentUser.id
     };
 
     await supabase.insert('friends', friendship);
-    
-    // Refresh
-    fetchFriendRequests();
-    fetchFriends();
+    loadFriendsAndRequests(currentUser.id);
     setLoading(false);
   };
 
   const rejectFriendRequest = async (requestId) => {
     setLoading(true);
     await supabase.delete('friend_requests', `?id=eq.${requestId}`);
-    fetchFriendRequests();
+    loadFriendsAndRequests(currentUser.id);
     setLoading(false);
-  };
-
-  const fetchFriendRequests = async () => {
-    if (!currentUser) return;
-
-    const requests = await supabase.select('friend_requests', `?to_user_id=eq.${currentUser.id}&status=eq.pending`);
-    
-    if (requests) {
-      const withUsers = await Promise.all(
-        requests.map(async (req) => {
-          const user = await supabase.select('users', `?id=eq.${req.from_user_id}`);
-          return { ...req, fromUser: user?.[0] };
-        })
-      );
-      setFriendRequests(withUsers.filter(r => r.fromUser));
-    }
-  };
-
-  const fetchFriends = async () => {
-    if (!currentUser) return;
-
-    const friendships = await supabase.select('friends', `?user1_id=eq.${currentUser.id}`);
-    
-    if (friendships) {
-      setFriends(friendships);
-    }
   };
 
   const sendMessage = async () => {
@@ -374,20 +325,13 @@ const App = () => {
       message_type: 'text'
     };
 
-    const result = await supabase.insert('messages', message);
-    
-    if (result && result.length > 0) {
-      setNewMessage('');
-      fetchMessages();
-    }
-
+    await supabase.insert('messages', message);
+    setNewMessage('');
+    await fetchMessages(chatKey);
     setLoading(false);
   };
 
-  const fetchMessages = async () => {
-    if (!selectedChat) return;
-
-    const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
+  const fetchMessages = async (chatKey) => {
     const data = await supabase.select('messages', `?chat_id=eq.${chatKey}&order=created_at.asc`);
 
     if (data) {
@@ -403,19 +347,19 @@ const App = () => {
     if (!file || !selectedChat) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Sirf images upload kar sakte hain!');
+      alert('Only images allowed!');
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image size 5MB se kam hona chahiye!');
+      alert('Max 5MB!');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
-      
+
       const message = {
         chat_id: chatKey,
         from_user_id: currentUser.id,
@@ -423,11 +367,8 @@ const App = () => {
         message_type: 'image'
       };
 
-      const result = await supabase.insert('messages', message);
-      
-      if (result && result.length > 0) {
-        fetchMessages();
-      }
+      await supabase.insert('messages', message);
+      await fetchMessages(chatKey);
     };
 
     reader.readAsDataURL(file);
@@ -441,7 +382,7 @@ const App = () => {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Sirf images upload kar sakte hain!');
+      alert('Only images allowed!');
       return;
     }
 
@@ -455,10 +396,7 @@ const App = () => {
         [targetId]: imageData
       }));
 
-      // Update in database
-      if (!isAdmin() || userId === currentUser?.id) {
-        await supabase.update('users', { profile_image: imageData }, `?id=eq.${targetId}`);
-      }
+      await supabase.update('users', { profile_image: imageData }, `?id=eq.${targetId}`);
     };
 
     reader.readAsDataURL(file);
@@ -469,10 +407,11 @@ const App = () => {
 
   const deleteMessage = async (messageId) => {
     if (!selectedChat) return;
-    
+
     setLoading(true);
     await supabase.delete('messages', `?id=eq.${messageId}`);
-    fetchMessages();
+    const chatKey = [currentUser.id, selectedChat.id].sort().join('-');
+    await fetchMessages(chatKey);
     setLoading(false);
   };
 
@@ -482,39 +421,47 @@ const App = () => {
     return messages[chatKey] || [];
   };
 
-  const deleteUserAccount = async (userId) => {
-    if (!isAdmin()) return;
-
-    if (window.confirm('Delete this account permanently?')) {
-      setLoading(true);
-      await supabase.delete('users', `?id=eq.${userId}`);
-      setLoading(false);
-      // Refresh users list
-    }
+  const formatMessageTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
   const blockUser = async (userId) => {
     if (!isAdmin()) return;
-
     setLoading(true);
     await supabase.update('users', { is_blocked: true }, `?id=eq.${userId}`);
+    loadFriendsAndRequests(currentUser.id);
     setLoading(false);
   };
 
   const unblockUser = async (userId) => {
     if (!isAdmin()) return;
-
     setLoading(true);
     await supabase.update('users', { is_blocked: false }, `?id=eq.${userId}`);
+    loadFriendsAndRequests(currentUser.id);
     setLoading(false);
+  };
+
+  const deleteUserAccount = async (userId) => {
+    if (!isAdmin()) return;
+    if (window.confirm('Delete account?')) {
+      setLoading(true);
+      await supabase.delete('users', `?id=eq.${userId}`);
+      loadFriendsAndRequests(currentUser.id);
+      setLoading(false);
+    }
   };
 
   const clearAllMessages = async () => {
     if (!isAdmin()) return;
-
     if (window.confirm('Clear all messages?')) {
       setLoading(true);
-      // Note: This requires a more complex query in real Supabase
+      const allMessages = await supabase.select('messages');
+      if (allMessages && allMessages.length > 0) {
+        for (let msg of allMessages) {
+          await supabase.delete('messages', `?id=eq.${msg.id}`);
+        }
+      }
       setMessages({});
       setLoading(false);
     }
@@ -532,16 +479,6 @@ const App = () => {
       .filter(Boolean);
   };
 
-  const formatMessageTime = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  };
-
-  const formatDate = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
-
   const AvatarComponent = ({ userId, username, size = 'w-12 h-12' }) => {
     const img = profileImage[userId];
     if (img) {
@@ -549,7 +486,7 @@ const App = () => {
     }
     return (
       <div className={`${size} bg-gradient-to-br from-blue-400 to-purple-400 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}>
-        {username[0].toUpperCase()}
+        {username?.[0]?.toUpperCase() || '?'}
       </div>
     );
   };
@@ -565,13 +502,6 @@ const App = () => {
           </div>
 
           <div className="p-6">
-            {supabaseError && (
-              <div className="mb-4 p-3 bg-yellow-100 border border-yellow-300 text-yellow-700 text-xs rounded-lg flex gap-2">
-                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                <span>{supabaseError}</span>
-              </div>
-            )}
-
             <div className="flex gap-2 mb-6">
               <button
                 onClick={() => { setAuthMode('login'); setLoginError(''); }}
@@ -607,7 +537,7 @@ const App = () => {
                 placeholder="Username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onKeyPress={(e) => e.key === 'Enter' && (authMode === 'login' ? handleLogin() : handleSignup())}
                 disabled={loading}
               />
@@ -616,7 +546,7 @@ const App = () => {
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onKeyPress={(e) => e.key === 'Enter' && (authMode === 'login' ? handleLogin() : handleSignup())}
                 disabled={loading}
               />
@@ -624,7 +554,7 @@ const App = () => {
               <button
                 onClick={authMode === 'login' ? handleLogin : handleSignup}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-[1.02] disabled:opacity-50"
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-xl font-semibold disabled:opacity-50"
               >
                 {loading ? 'Loading...' : authMode === 'login' ? 'Login' : 'Create Account'}
               </button>
@@ -635,10 +565,10 @@ const App = () => {
     );
   }
 
-  // Main Chat Interface
   const friendsList = getFriendsList();
-  const pendingRequests = friendRequests.filter(r => r.fromUser);
+  const pendingRequests = friendRequests.filter(r => users.find(u => u.id === r.from_user_id));
 
+  // Requests Tab
   if (activeTab === 'requests') {
     return (
       <div className="h-screen flex bg-gray-50 overflow-hidden">
@@ -646,17 +576,17 @@ const App = () => {
           <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <Bell size={24} />
-              Friend Requests
+              Requests
             </h2>
           </div>
 
           <div className="p-4">
             <button
               onClick={() => setActiveTab('chats')}
-              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition mb-4"
+              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 mb-4"
             >
               <ArrowLeft size={18} />
-              <span>Back to Chats</span>
+              Back
             </button>
           </div>
 
@@ -667,49 +597,51 @@ const App = () => {
                 <p className="text-sm">No requests</p>
               </div>
             ) : (
-              pendingRequests.map(req => (
-                <div key={req.id} className="flex items-center justify-between mb-3 bg-white p-4 rounded-xl shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <AvatarComponent userId={req.fromUser.id} username={req.fromUser.username} size="w-12 h-12" />
-                    <div>
-                      <div className="text-sm font-semibold">{req.fromUser.username}</div>
-                      <div className="text-xs text-gray-500">wants to connect</div>
+              pendingRequests.map(req => {
+                const fromUser = users.find(u => u.id === req.from_user_id);
+                return (
+                  <div key={req.id} className="flex items-center justify-between mb-3 bg-white p-4 rounded-xl shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <AvatarComponent userId={fromUser?.id} username={fromUser?.username} size="w-12 h-12" />
+                      <div>
+                        <div className="text-sm font-semibold">{fromUser?.username}</div>
+                        <div className="text-xs text-gray-500">wants to connect</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => acceptFriendRequest(req.id, req.from_user_id)}
+                        disabled={loading}
+                        className="p-2 bg-green-500 text-white rounded-lg"
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        onClick={() => rejectFriendRequest(req.id)}
+                        disabled={loading}
+                        className="p-2 bg-red-500 text-white rounded-lg"
+                      >
+                        <X size={16} />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => acceptFriendRequest(req.id, req.from_user_id)}
-                      className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50"
-                      disabled={loading}
-                    >
-                      <Check size={16} />
-                    </button>
-                    <button
-                      onClick={() => rejectFriendRequest(req.id)}
-                      className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:opacity-50"
-                      disabled={loading}
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
 
         <div className="flex-1 hidden md:flex items-center justify-center bg-gray-50">
           <div className="text-center">
-            <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
-              <Bell size={40} className="text-blue-600" />
-            </div>
-            <p className="text-lg font-semibold text-gray-800">Friend Requests</p>
+            <Bell size={40} className="text-blue-600 mx-auto mb-4" />
+            <p className="text-lg font-semibold">Friend Requests</p>
           </div>
         </div>
       </div>
     );
   }
 
+  // Settings Tab
   if (activeTab === 'settings') {
     return (
       <div className="h-screen flex bg-gray-50 overflow-hidden">
@@ -724,19 +656,16 @@ const App = () => {
           <div className="p-4">
             <button
               onClick={() => setActiveTab('chats')}
-              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition mb-4"
+              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 mb-4"
             >
               <ArrowLeft size={18} />
-              <span>Back</span>
+              Back
             </button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
             <div className="mb-6">
-              <h3 className="font-semibold mb-3 text-gray-700 flex items-center gap-2">
-                <User size={18} />
-                Profile
-              </h3>
+              <h3 className="font-semibold mb-3 text-gray-700">Profile</h3>
               <div className="bg-white border rounded-xl p-4">
                 <div className="flex items-center gap-4 mb-4">
                   <AvatarComponent userId={currentUser?.id} username={currentUser?.username} size="w-16 h-16" />
@@ -744,7 +673,7 @@ const App = () => {
                     <div className="font-semibold text-gray-800">{currentUser?.username}</div>
                     <button
                       onClick={() => profileInputRef.current?.click()}
-                      className="mt-2 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition text-xs font-medium"
+                      className="mt-2 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium"
                     >
                       Change Photo
                     </button>
@@ -762,43 +691,120 @@ const App = () => {
 
             {isAdmin() && (
               <div className="mb-6">
-                <h3 className="font-semibold mb-3 text-gray-700 flex items-center gap-2">
-                  <Shield size={18} />
-                  Admin
-                </h3>
+                <h3 className="font-semibold mb-3 text-gray-700">Admin</h3>
                 <button
                   onClick={() => setActiveTab('admin')}
-                  className="w-full px-4 py-2.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-medium flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2.5 bg-red-100 text-red-700 rounded-lg font-medium"
                 >
-                  <Shield size={18} />
                   Admin Dashboard
                 </button>
               </div>
             )}
 
-            <div>
-              <button
-                onClick={handleLogout}
-                className="w-full px-4 py-2.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-medium flex items-center justify-center gap-2"
-              >
-                <LogOut size={18} />
-                Logout
-              </button>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full px-4 py-2.5 bg-red-100 text-red-700 rounded-lg font-medium flex items-center justify-center gap-2"
+            >
+              <LogOut size={18} />
+              Logout
+            </button>
           </div>
         </div>
 
         <div className="flex-1 hidden md:flex items-center justify-center bg-gray-50">
-          <div className="text-center">
-            <Settings size={40} className="text-blue-600 mx-auto mb-4" />
-            <p className="text-lg font-semibold text-gray-800">Settings</p>
-          </div>
+          <Settings size={40} className="text-blue-600 mx-auto" />
         </div>
       </div>
     );
   }
 
-  // Main chats
+  // Admin Tab
+  if (activeTab === 'admin' && isAdmin()) {
+    return (
+      <div className="h-screen flex bg-gray-50 overflow-hidden">
+        <div className="w-full md:w-96 bg-white border-r flex flex-col">
+          <div className="bg-gradient-to-r from-red-600 to-pink-600 p-4">
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Shield size={24} />
+              Admin Panel
+            </h2>
+          </div>
+
+          <div className="p-4">
+            <button
+              onClick={() => setActiveTab('chats')}
+              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg mb-4"
+            >
+              <ArrowLeft size={18} />
+              Back
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-6">
+              <h3 className="font-semibold mb-3 text-gray-700">System</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={clearAllMessages}
+                  disabled={loading}
+                  className="w-full px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm"
+                >
+                  Clear Messages
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold mb-3 text-gray-700">Users ({users.length})</h3>
+              {users.map(user => (
+                <div key={user.id} className="bg-white border rounded-xl p-3 mb-3">
+                  <div className="flex items-center gap-3 mb-3">
+                    <AvatarComponent userId={user.id} username={user.username} size="w-10 h-10" />
+                    <div>
+                      <div className="font-semibold text-sm">{user.username}</div>
+                      {user.is_blocked && <div className="text-xs text-red-600">Blocked</div>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {user.is_blocked ? (
+                      <button
+                        onClick={() => unblockUser(user.id)}
+                        disabled={loading}
+                        className="flex-1 px-3 py-1.5 bg-green-100 text-green-700 rounded text-xs"
+                      >
+                        Unblock
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => blockUser(user.id)}
+                        disabled={loading}
+                        className="flex-1 px-3 py-1.5 bg-yellow-100 text-yellow-700 rounded text-xs"
+                      >
+                        Block
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteUserAccount(user.id)}
+                      disabled={loading}
+                      className="flex-1 px-3 py-1.5 bg-red-100 text-red-700 rounded text-xs"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 hidden md:flex items-center justify-center bg-gray-50">
+          <Shield size={40} className="text-red-600 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  // Main Chat
   return (
     <div className="h-screen flex bg-gray-50 overflow-hidden">
       <div className={`${showSidebar ? 'flex' : 'hidden md:flex'} w-full md:w-96 bg-white border-r flex-col`}>
@@ -836,7 +842,7 @@ const App = () => {
                   <button
                     onClick={() => sendFriendRequest(user.id)}
                     disabled={loading}
-                    className="p-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-md transition disabled:opacity-50"
+                    className="p-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg disabled:opacity-50"
                   >
                     <UserPlus size={16} />
                   </button>
@@ -848,12 +854,12 @@ const App = () => {
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-4">
-            <h3 className="font-semibold mb-3 text-gray-700 text-sm uppercase tracking-wide">Chats</h3>
+            <h3 className="font-semibold mb-3 text-gray-700 text-sm uppercase">Chats</h3>
             {friendsList.length === 0 ? (
               <div className="text-center py-12 text-gray-400">
                 <Users size={48} className="mx-auto mb-3 opacity-50" />
-                <p className="text-sm font-medium">No friends yet</p>
-                <p className="text-xs mt-1">Search and add friends</p>
+                <p className="text-sm">No friends yet</p>
+                <p className="text-xs mt-1">Search to add friends</p>
               </div>
             ) : (
               friendsList.map(friend => (
@@ -862,11 +868,12 @@ const App = () => {
                   onClick={() => {
                     setSelectedChat(friend);
                     setShowSidebar(false);
-                    fetchMessages();
+                    const chatKey = [currentUser.id, friend.id].sort().join('-');
+                    fetchMessages(chatKey);
                   }}
                   className={`w-full flex items-center gap-3 p-3 rounded-xl mb-2 transition-all ${
                     selectedChat?.id === friend.id
-                      ? 'bg-gradient-to-r from-blue-50 to-purple-50 shadow-sm'
+                      ? 'bg-gradient-to-r from-blue-50 to-purple-50'
                       : 'hover:bg-gray-50'
                   }`}
                 >
@@ -890,7 +897,7 @@ const App = () => {
             }`}
           >
             <Bell size={18} />
-            <span className="hidden sm:inline">Requests</span>
+            <span className="hidden sm:inline text-xs">Requests</span>
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -901,7 +908,7 @@ const App = () => {
             }`}
           >
             <Settings size={18} />
-            <span className="hidden sm:inline">Settings</span>
+            <span className="hidden sm:inline text-xs">Settings</span>
           </button>
         </div>
       </div>
@@ -915,7 +922,7 @@ const App = () => {
                   setSelectedChat(null);
                   setShowSidebar(true);
                 }}
-                className="md:hidden text-white p-2 hover:bg-white/20 rounded-lg transition"
+                className="md:hidden text-white p-2 hover:bg-white/20 rounded-lg"
               >
                 <ArrowLeft size={20} />
               </button>
@@ -930,8 +937,8 @@ const App = () => {
                 <div className="h-full flex items-center justify-center text-gray-400">
                   <div className="text-center">
                     <Send size={48} className="mx-auto mb-3 opacity-50" />
-                    <p className="text-sm">No messages yet</p>
-                    <p className="text-xs mt-1">Start the conversation!</p>
+                    <p className="text-sm">No messages</p>
+                    <p className="text-xs mt-1">Start chatting!</p>
                   </div>
                 </div>
               ) : (
@@ -960,8 +967,8 @@ const App = () => {
                         {msg.from_user_id === currentUser.id && (
                           <button
                             onClick={() => deleteMessage(msg.id)}
-                            className="absolute -right-2 top-0 opacity-0 group-hover:opacity-100 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow-lg disabled:opacity-50"
                             disabled={loading}
+                            className="absolute -right-2 top-0 opacity-0 group-hover:opacity-100 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow-lg disabled:opacity-50"
                           >
                             <Trash2 size={12} />
                           </button>
@@ -985,24 +992,24 @@ const App = () => {
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl transition flex-shrink-0 disabled:opacity-50"
                   disabled={loading}
+                  className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl disabled:opacity-50"
                 >
                   <Image size={22} />
                 </button>
                 <input
                   type="text"
-                  placeholder="Type a message..."
+                  placeholder="Type message..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  className="flex-1 px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={loading}
                 />
                 <button
                   onClick={sendMessage}
                   disabled={!newMessage.trim() || loading}
-                  className="p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  className="p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full disabled:opacity-50"
                 >
                   <Send size={22} />
                 </button>
@@ -1016,7 +1023,7 @@ const App = () => {
                 <Send size={40} className="text-blue-600" />
               </div>
               <p className="text-lg font-semibold text-gray-800">Select a chat</p>
-              <p className="text-sm text-gray-500 mt-1">Choose a friend to start messaging</p>
+              <p className="text-sm text-gray-500">Choose friend to message</p>
             </div>
           </div>
         )}
@@ -1025,4 +1032,4 @@ const App = () => {
   );
 };
 
-export default App;
+export default ChatApp;

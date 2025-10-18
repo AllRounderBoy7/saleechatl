@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Image, UserPlus, Check, X, LogOut, Search, Trash2, ArrowLeft, Users, Shield, Settings, Ban, Unlock, UserX, Bell, User, AlertCircle } from 'lucide-react';
 
 // ⚠️ IMPORTANT: Add your Supabase credentials here
-const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_KEY = 'YOUR_ANON_KEY';
+const SUPABASE_URL = 'https://fsvuqwssdgninwzbhuny.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2anVmamFzbm1jbm9raW5oaHNpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0MjMwODMsImV4cCI6MjA3NTk5OTA4M30.cUncCbTLhFvcbiOHjPCuhJLLiHweFxsE3U6FreIXUk0';
 
 const ADMIN_CREDENTIALS = {
   username: 'sameer',
